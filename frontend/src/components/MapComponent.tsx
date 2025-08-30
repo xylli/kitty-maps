@@ -1,6 +1,6 @@
 "use client";
 import * as d3 from "d3";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { feature, mesh } from "topojson-client";
 
 interface DataEntry {
@@ -18,7 +18,6 @@ interface Props {
     marginLeft?: number;
 }
 
-// ... existing code ...
 function MapComponent({
                           data,
                           width = 928,
@@ -29,6 +28,15 @@ function MapComponent({
                           marginLeft = 20,
                       }: Props) {
     const height = providedHeight ?? Math.round(width / 2 + marginTop);
+
+    // Interactivity refs/state for globe
+    const svgRef = useRef<SVGSVGElement | null>(null);
+    const [rotation, setRotation] = useState<[number, number, number]>([0, 0, 0]); // [lambda, phi, gamma]
+    const [scaleK, setScaleK] = useState<number>(1); // zoom scale multiplier
+    const rotationRef = useRef(rotation);
+    const scaleRef = useRef(scaleK);
+    rotationRef.current = rotation;
+    scaleRef.current = scaleK;
 
     // Load the local TopoJSON file (place it under public/countries-50m.json)
     const [topology, setTopology] = useState<any | null>(null);
@@ -71,19 +79,19 @@ function MapComponent({
         return d3.scaleSequential(domain, d3.interpolateYlGnBu);
     }, [valueByName]);
 
-    // Projection and path
-    const { projection, path } = useMemo(() => {
+    // Projection and path: switch to orthographic globe
+    const { projection, path, radius } = useMemo(() => {
+        const r = Math.min(width - marginLeft - marginRight, height - marginTop - marginBottom) / 2;
+        const baseScale = r; // d3.geoOrthographic scale corresponds to radius
         const proj = d3
-            .geoEqualEarth()
-            .fitExtent(
-                [
-                    [marginLeft + 2, marginTop + 2],
-                    [width - marginRight - 2, height - marginBottom - 2],
-                ],
-                { type: "Sphere" } as any
-            );
-        return { projection: proj, path: d3.geoPath(proj) };
-    }, [width, height, marginTop, marginRight, marginBottom, marginLeft]);
+            .geoOrthographic()
+            .translate([width / 2, height / 2])
+            .clipAngle(90)
+            .precision(0.5);
+        // Apply current rotation and zoom scale
+        proj.rotate(rotation as [number, number, number]).scale(baseScale * scaleK);
+        return { projection: proj, path: d3.geoPath(proj), radius: r };
+    }, [width, height, marginTop, marginRight, marginBottom, marginLeft, rotation, scaleK]);
 
     const graticule = useMemo(() => d3.geoGraticule10(), []);
 
@@ -98,7 +106,7 @@ function MapComponent({
         >;
     }, [topology]);
 
-    // Country borders (internal boundaries)
+    // Country borders (internal boundaries) - still useful on globe
     const borders = useMemo(() => {
         if (!topology) return null;
         try {
@@ -108,20 +116,104 @@ function MapComponent({
         }
     }, [topology]);
 
+    // Drag to rotate; wheel/pinch to zoom
+    useEffect(() => {
+        const svg = d3.select(svgRef.current);
+        if (svg.empty()) return;
+
+        // Ensure touch gestures reach D3 (prevent browser panning/zooming)
+        if (svgRef.current) {
+            svgRef.current.style.touchAction = "none";
+        }
+
+        // Zoom: adjust scaleK (kept separate from d3 zoom translate)
+        const zoom = d3.zoom<SVGSVGElement, unknown>()
+            .scaleExtent([0.5, 4])
+            .filter((event) => {
+                // Only wheel or pinch triggers zoom; drag handled by custom drag
+                if (event.type === "wheel") return true;
+                if (event.type === "touchstart") return (event as any).touches?.length > 1;
+                return false;
+            })
+            .on("zoom", (event) => {
+                const k = event.transform.k;
+                setScaleK(k);
+            });
+
+        svg.call(zoom as any);
+
+        // Drag: rotate the globe (use closure variables instead of stashing on the event)
+        let startRotation: [number, number, number] | null = null;
+        let startPos: [number, number] | null = null;
+
+        const drag = d3.drag<SVGSVGElement, unknown>()
+            .on("start", (event) => {
+                startRotation = rotationRef.current.slice() as [number, number, number];
+                startPos = [event.x, event.y];
+            })
+            .on("drag", (event) => {
+                // Initialize if for some reason start didn't fire
+                if (!startRotation || !startPos) {
+                    startRotation = rotationRef.current.slice() as [number, number, number];
+                    startPos = [event.x, event.y];
+                }
+
+                const [x0, y0] = startPos;
+                const dx = event.x - x0;
+                const dy = event.y - y0;
+
+                // Sensitivity: 1 pixel ~ 0.25 degrees (tweakable)
+                const sens = 0.25;
+                const [lambda0, phi0, gamma] = startRotation;
+
+                // update rotation (lambda increases leftwards; invert dx for natural feel)
+                const lambda = lambda0 + (-dx * sens);
+                const phi = Math.max(-90, Math.min(90, phi0 + (dy * sens))); // clamp latitude tilt
+                setRotation([lambda, phi, gamma]);
+            });
+
+        svg
+            .style("cursor", "grab")
+            .on("mousedown.drag-cursor", () => svg.style("cursor", "grabbing"))
+            .on("mouseup.drag-cursor", () => svg.style("cursor", "grab"))
+            .call(drag as any);
+
+        return () => {
+            svg.on(".zoom", null)
+                .on(".drag", null)
+                .on("mousedown.drag-cursor", null)
+                .on("mouseup.drag-cursor", null);
+        };
+    }, []);
+
+
     return (
         <svg
+            ref={svgRef}
             width={width}
             height={height}
             viewBox={`0 0 ${width} ${height}`}
             style={{ maxWidth: "100%", height: "auto" }}
-            aria-label="World choropleth map"
+            aria-label="World choropleth globe"
             role="img"
         >
+            <defs>
+                {/* Clip everything to the sphere */}
+                <clipPath id="sphere-clip">
+                    <path d={path({ type: "Sphere" } as any) ?? undefined} />
+                </clipPath>
+                {/* Subtle ocean radial gradient for depth */}
+                <radialGradient id="ocean-grad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="#eaf3fb" />
+                    <stop offset="100%" stopColor="#dceaf7" />
+                </radialGradient>
+            </defs>
+
             {/* Ocean / sphere */}
             <path
                 d={path({ type: "Sphere" } as any) ?? undefined}
-                fill="#eef5fb"
-                stroke="#bcd1e6"
+                fill="url(#ocean-grad)"
+                stroke="#7da7cd"
                 strokeWidth={1}
             />
 
@@ -129,45 +221,49 @@ function MapComponent({
             <path
                 d={path(graticule) ?? undefined}
                 fill="none"
-                stroke="#c7d7e5"
+                stroke="#a9bfd3"
                 strokeOpacity={0.6}
                 strokeWidth={0.5}
+                clipPath="url(#sphere-clip)"
             />
 
-            {/* Countries */}
+            {/* Countries, clipped to sphere */}
             {error && (
                 <text x={16} y={24} fill="crimson">
                     {error}
                 </text>
             )}
-            {!error &&
-                countries?.features?.map((f, i) => {
-                    const name =
-                        (f.properties?.name as string) ??
-                        (f.properties?.NAME as string) ??
-                        (f.properties?.admin as string) ??
-                        "";
-                    const v = valueByName.get(name);
-                    const fill =
-                        v == null || !Number.isFinite(v) ? "#e5e7eb" : color(v as number);
-                    return (
-                        <path
-                            key={i}
-                            d={path(f) ?? undefined}
-                            fill={fill}
-                            stroke="#ffffff"
-                            strokeWidth={0.5}
-                            strokeLinejoin="round"
-                        >
-                            <title>
-                                {name || "Unknown"}
-                                {v == null || !Number.isFinite(v) ? "" : `: ${v}`}
-                            </title>
-                        </path>
-                    );
-                })}
+            {!error && (
+                <g clipPath="url(#sphere-clip)">
+                    {countries?.features?.map((f, i) => {
+                        const name =
+                            (f.properties?.name as string) ??
+                            (f.properties?.NAME as string) ??
+                            (f.properties?.admin as string) ??
+                            "";
+                        const v = valueByName.get(name);
+                        const fill =
+                            v == null || !Number.isFinite(v) ? "#e5e7eb" : color(v as number);
+                        return (
+                            <path
+                                key={i}
+                                d={path(f) ?? undefined}
+                                fill={fill}
+                                stroke="#ffffff"
+                                strokeWidth={0.4}
+                                strokeLinejoin="round"
+                            >
+                                <title>
+                                    {name || "Unknown"}
+                                    {v == null || !Number.isFinite(v) ? "" : `: ${v}`}
+                                </title>
+                            </path>
+                        );
+                    })}
+                </g>
+            )}
 
-            {/* Borders overlay */}
+            {/* Borders overlay, clipped */}
             {borders && (
                 <path
                     d={path(borders) ?? undefined}
@@ -175,6 +271,7 @@ function MapComponent({
                     stroke="#9ca3af"
                     strokeOpacity={0.6}
                     strokeWidth={0.5}
+                    clipPath="url(#sphere-clip)"
                 />
             )}
 
