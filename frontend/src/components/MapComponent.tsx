@@ -44,6 +44,14 @@ function MapComponent({
     rotationRef.current = rotation;
     scaleRef.current = scaleK;
 
+    // Popup state when clicking a country
+    const [selected, setSelected] = useState<{
+        name: string;
+        value: number | null;
+        x: number;
+        y: number;
+    } | null>(null);
+
     // Animation frame refs to throttle heavy updates during interactions
     const rotateRafRef = useRef<number | null>(null);
     const zoomRafRef = useRef<number | null>(null);
@@ -211,7 +219,19 @@ function MapComponent({
     };
 
     return (
-        <div style={{ position: "relative", width: "100%", maxWidth: width }}>
+        <div
+            style={{ position: "relative", width: "100%", maxWidth: width }}
+            onClick={(e) => {
+                // close popup if clicking outside it while one is open
+                if (selected) {
+                    const target = e.target as HTMLElement;
+                    // If click is on a path, it is handled there; here we only close when clicking empty area
+                    if (target.tagName !== 'path') {
+                        setSelected(null);
+                    }
+                }
+            }}
+        >
             <GlobeSvg svgRef={svgRef} width={width} height={height}>
                 <defs>
                     {/* Clip everything to the sphere */}
@@ -263,6 +283,15 @@ function MapComponent({
                                 stroke="#ffffff"
                                 strokeWidth={0.4}
                                 strokeLinejoin="round"
+                                style={{ cursor: "pointer" }}
+                                onClick={(e) => {
+                                    // Position relative to the container div
+                                    const container = (e.currentTarget.ownerSVGElement?.parentElement as HTMLElement) ?? undefined;
+                                    const rect = container?.getBoundingClientRect();
+                                    const clickX = e.clientX - (rect?.left ?? 0);
+                                    const clickY = e.clientY - (rect?.top ?? 0);
+                                    setSelected({ name: name || "Unknown", value: Number.isFinite(v as number) ? (v as number) : null, x: clickX, y: clickY });
+                                }}
                             >
                                 <title>{v == null || !Number.isFinite(v) ? (name || "Unknown") : `${name || "Unknown"}: ${v}`}</title>
                             </path>
@@ -285,6 +314,55 @@ function MapComponent({
                 {/* Legend */}
                 <Legend color={color} width={width} height={height} />
             </GlobeSvg>
+
+            {/* Country click popup */}
+            {selected && (
+                <div
+                    role="dialog"
+                    aria-live="polite"
+                    aria-label="Country details"
+                    style={{
+                        position: "absolute",
+                        left: Math.max(8, Math.min(selected.x + 8, (width - 220))) ,
+                        top: Math.max(8, Math.min(selected.y + 8, (height - 100))) ,
+                        background: "#ffffff",
+                        border: "1px solid #d1d5db",
+                        borderRadius: 8,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+                        padding: 12,
+                        zIndex: 2,
+                        maxWidth: 220,
+                        fontSize: 14,
+                        color: "#111827"
+                    }}
+                >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                        <strong style={{ fontWeight: 600 }}>{selected.name}</strong>
+                        <button
+                            onClick={() => setSelected(null)}
+                            aria-label="Close"
+                            title="Close"
+                            style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                color: "#6b7280",
+                                fontSize: 16,
+                                lineHeight: 1
+                            }}
+                        >
+                            ×
+                        </button>
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                        {selected.value == null ? (
+                            <span>No value</span>
+                        ) : (
+                            <span>Value: {selected.value}</span>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Zoom controls */}
             <div
