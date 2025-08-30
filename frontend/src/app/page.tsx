@@ -1,5 +1,5 @@
 import Image from "next/image";
-import {basePath} from "@/lib/constants.ts";
+import {basePath} from "@/lib/constants";
 
 export default function Home() {
   return (
