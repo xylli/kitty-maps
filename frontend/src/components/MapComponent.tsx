@@ -1,15 +1,16 @@
 "use client";
 import * as d3 from "d3";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { feature, mesh } from "topojson-client";
+import React, {useEffect, useMemo, useRef, useState} from "react";
+import {feature, mesh} from "topojson-client";
 import GlobeSvg from "./map/GlobeSvg";
 import Legend from "./map/Legend";
-import {basePath} from "@/lib/constants";
 
 interface DataEntry {
     country: string;
     hale: number;
 }
+
+export type TopologyData = any;
 
 interface Props {
     data: DataEntry[];
@@ -19,6 +20,7 @@ interface Props {
     marginRight?: number;
     marginBottom?: number;
     marginLeft?: number;
+    topology: TopologyData;
 }
 
 function MapComponent({
@@ -29,6 +31,7 @@ function MapComponent({
                           marginRight = 20,
                           marginBottom = 20,
                           marginLeft = 20,
+                          topology,
                       }: Props) {
     const height = providedHeight ?? Math.round(width / 2 + marginTop);
 
@@ -44,28 +47,6 @@ function MapComponent({
     // Animation frame refs to throttle heavy updates during interactions
     const rotateRafRef = useRef<number | null>(null);
     const zoomRafRef = useRef<number | null>(null);
-
-    // Load the local TopoJSON file (place it under public/countries-50m.json)
-    const [topology, setTopology] = useState<any | null>(null);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        let cancelled = false;
-        fetch(basePath + "/data/countries-50m.json")
-            .then((r) => {
-                if (!r.ok) throw new Error(`Failed to fetch countries-50m.json: ${r.status}`);
-                return r.json();
-            })
-            .then((json) => {
-                if (!cancelled) setTopology(json);
-            })
-            .catch((e: any) => {
-                if (!cancelled) setError(e?.message ?? String(e));
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
 
     // Prepare value lookup
     const valueByName = useMemo(() => {
@@ -87,7 +68,7 @@ function MapComponent({
     }, [valueByName]);
 
     // Projection and path: switch to orthographic globe
-    const { projection, path, radius } = useMemo(() => {
+    const {path} = useMemo(() => {
         const r = Math.min(width - marginLeft - marginRight, height - marginTop - marginBottom) / 2;
         const baseScale = r; // d3.geoOrthographic scale corresponds to radius
         const proj = d3
@@ -97,7 +78,7 @@ function MapComponent({
             .precision(0.5);
         // Apply current rotation and zoom scale
         proj.rotate(rotation as [number, number, number]).scale(baseScale * scaleK);
-        return { projection: proj, path: d3.geoPath(proj), radius: r };
+        return {projection: proj, path: d3.geoPath(proj), radius: r};
     }, [width, height, marginTop, marginRight, marginBottom, marginLeft, rotation, scaleK]);
 
     const graticule = useMemo(() => d3.geoGraticule10(), []);
@@ -213,18 +194,18 @@ function MapComponent({
             <defs>
                 {/* Clip everything to the sphere */}
                 <clipPath id="sphere-clip">
-                    <path d={path({ type: "Sphere" } as any) ?? undefined} />
+                    <path d={path({type: "Sphere"} as any) ?? undefined}/>
                 </clipPath>
                 {/* Subtle ocean radial gradient for depth */}
                 <radialGradient id="ocean-grad" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#eaf3fb" />
-                    <stop offset="100%" stopColor="#dceaf7" />
+                    <stop offset="0%" stopColor="#eaf3fb"/>
+                    <stop offset="100%" stopColor="#dceaf7"/>
                 </radialGradient>
             </defs>
 
             {/* Ocean / sphere */}
             <path
-                d={path({ type: "Sphere" } as any) ?? undefined}
+                d={path({type: "Sphere"} as any) ?? undefined}
                 fill="url(#ocean-grad)"
                 stroke="#7da7cd"
                 strokeWidth={1}
@@ -241,40 +222,31 @@ function MapComponent({
             />
 
             {/* Countries, clipped to sphere */}
-            {error && (
-                <text x={16} y={24} fill="crimson">
-                    {error}
-                </text>
-            )}
-            {!error && (
-                <g clipPath="url(#sphere-clip)">
-                    {countries?.features?.map((f, i) => {
-                        const name =
-                            (f.properties?.name as string) ??
-                            (f.properties?.NAME as string) ??
-                            (f.properties?.admin as string) ??
-                            "";
-                        const v = valueByName.get(name);
-                        const fill =
-                            v == null || !Number.isFinite(v) ? "#e5e7eb" : color(v as number);
-                        return (
-                            <path
-                                key={i}
-                                d={path(f) ?? undefined}
-                                fill={fill}
-                                stroke="#ffffff"
-                                strokeWidth={0.4}
-                                strokeLinejoin="round"
-                            >
-                                <title>
-                                    {name || "Unknown"}
-                                    {v == null || !Number.isFinite(v) ? "" : `: ${v}`}
-                                </title>
-                            </path>
-                        );
-                    })}
-                </g>
-            )}
+            <g clipPath="url(#sphere-clip)">
+                {countries?.features?.map((f, i) => {
+                    let name =
+                        (f.properties?.name as string) ??
+                        (f.properties?.NAME as string) ??
+                        (f.properties?.admin as string) ??
+                        "";
+                    name = Array.isArray(name) ? name.join(", ") : name;
+                    const v = valueByName.get(name);
+                    const fill =
+                        v == null || !Number.isFinite(v) ? "#e5e7eb" : color(v as number);
+                    return (
+                        <path
+                            key={i}
+                            d={path(f) ?? undefined}
+                            fill={fill}
+                            stroke="#ffffff"
+                            strokeWidth={0.4}
+                            strokeLinejoin="round"
+                        >
+                            <title>{v == null || !Number.isFinite(v) ? (name || "Unknown") : `${name || "Unknown"}: ${v}`}</title>
+                        </path>
+                    );
+                })}
+            </g>
 
             {/* Borders overlay, clipped */}
             {borders && (
@@ -289,7 +261,7 @@ function MapComponent({
             )}
 
             {/* Legend */}
-            <Legend color={color} width={width} height={height} />
+            <Legend color={color} width={width} height={height}/>
         </GlobeSvg>
     );
 }

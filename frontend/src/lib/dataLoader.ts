@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { csvParse, autoType } from "d3-dsv";
+import {TopologyData} from "@/components/MapComponent";
 
 export interface HaleRow { country: string; hale: number }
 
@@ -27,7 +28,24 @@ export async function getHaleData(): Promise<HaleRow[]> {
   } catch (err: any) {
     console.error(`Failed to read CSV at ${filePath}:`, err?.message ?? err);
     throw new Error(
-      "HALE data file not found. Ensure it exists at public/data/hale.csv or update the path."
+      "HALE data file not found. Ensure it exists or update the path."
+    );
+  }
+}
+
+export async function getTopologyData(): Promise<TopologyData> {
+  const filePath = path.join(process.cwd(), "public", "data", "countries-50m.json");
+  try {
+      try {
+          const buf = await fs.readFile(filePath, "utf-8");
+          return JSON.parse(buf);
+      } catch (e) {
+          console.error("Failed to load countries-50m.json on server:", e);
+      }
+  } catch (err: any) {
+    console.error(`Failed to read json at ${filePath}:`, err?.message ?? err);
+    throw new Error(
+      "Topology data file not found. Ensure it exists or update the path."
     );
   }
 }
