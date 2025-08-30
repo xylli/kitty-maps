@@ -13,8 +13,7 @@ const nextConfig: NextConfig = {
         unoptimized: true, // safe for static export + GitHub Pages
     },
     basePath: basePath,
-    assetPrefix: basePath,
-    reactStrictMode: true,
+    assetPrefix: basePath + "/",
 
     // Optional: lets you prefix manual/public asset URLs in code
     env: {
