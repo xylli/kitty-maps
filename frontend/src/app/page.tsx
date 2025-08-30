@@ -1,40 +1,7 @@
 import Image from "next/image";
 import {basePath} from "@/lib/constants";
 import MapComponent from "@/components/MapComponent";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { csvParse, autoType } from "d3-dsv";
-
-function normalizeCsvHeader(text: string): string {
-    const lines = text.split(/\r?\n/);
-    if (lines.length === 0) return text;
-    const rawHeader = lines[0].replace(/^\uFEFF/, ""); // strip BOM if present
-    const trimmedHeader = rawHeader
-        .split(",")
-        .map((h) => h.trim())
-        .join(",");
-    return [trimmedHeader, ...lines.slice(1)].join("\n");
-}
-
-
-async function getHaleData() {
-    const filePath = path.join(process.cwd(), "public", "data", "hale.csv");
-    try {
-        const raw = await fs.readFile(filePath, "utf8");
-        const text = normalizeCsvHeader(raw);
-        const rows = csvParse(text, autoType);
-        return rows
-            .filter((d: any) => d.country && d.hale !== "-" && d.hale != null)
-            .map((d: any) => ({
-                country: String(d.country),
-                hale: Number(d.hale),
-            }));
-    } catch (err: any) {
-        console.error(`Failed to read CSV at ${filePath}:`, err?.message ?? err);
-        throw new Error("HALE data file not found. Ensure it exists at public/data/hale.csv or update the path.");
-    }
-}
-
+import { getHaleData } from "@/lib/hale";
 
 export default async function Home() {
     const hale = await getHaleData();
