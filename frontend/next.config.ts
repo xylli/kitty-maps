@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+const isProd = process.env.NODE_ENV === 'production';
+
+const gitHubPagesPath = "/kitty-maps"
+
 const nextConfig: NextConfig = {
   /* config options here */
     outputFileTracingRoot: __dirname,
@@ -7,8 +11,9 @@ const nextConfig: NextConfig = {
     images: {
         unoptimized: true, // safe for static export + GitHub Pages
     },
-    basePath: "/kitty-maps",
-
+    basePath: isProd ? gitHubPagesPath : "",
+    assetPrefix: isProd ? gitHubPagesPath : "",
+    reactStrictMode: true,
 };
 
 export default nextConfig;
