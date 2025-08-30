@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
     images: {
         unoptimized: true, // safe for static export + GitHub Pages
     },
-    basePath: "/",
+    basePath: "",
 
 };
 
