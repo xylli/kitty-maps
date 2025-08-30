@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { feature, mesh } from "topojson-client";
 import GlobeSvg from "./map/GlobeSvg";
 import Legend from "./map/Legend";
+import {basePath} from "@/lib/constants";
 
 interface DataEntry {
     country: string;
@@ -46,7 +47,7 @@ function MapComponent({
 
     useEffect(() => {
         let cancelled = false;
-        fetch("/data/countries-50m.json")
+        fetch(basePath + "/data/countries-50m.json")
             .then((r) => {
                 if (!r.ok) throw new Error(`Failed to fetch countries-50m.json: ${r.status}`);
                 return r.json();
