@@ -25,11 +25,11 @@ interface Props {
 
 function MapComponent({
                           data,
-                          width = 928,
+                          width = 1468,
                           height: providedHeight,
-                          marginTop = 20,
+                          marginTop = 0,
                           marginRight = 20,
-                          marginBottom = 20,
+                          marginBottom = 0,
                           marginLeft = 20,
                           topology,
                       }: Props) {
@@ -104,6 +104,8 @@ function MapComponent({
         }
     }, [topology]);
 
+    const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+
     // Drag to rotate; wheel/pinch to zoom
     useEffect(() => {
         const svg = d3.select(svgRef.current);
@@ -135,6 +137,7 @@ function MapComponent({
             });
 
         svg.call(zoom as any);
+        zoomBehaviorRef.current = zoom as any;
 
         // Drag: rotate the globe (use closure variables instead of stashing on the event)
         let startRotation: [number, number, number] | null = null;
@@ -188,81 +191,159 @@ function MapComponent({
         };
     }, []);
 
+    const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+    const ZOOM_MIN = 0.5;
+    const ZOOM_MAX = 4;
+
+    const applyZoom = (nextK: number, animate = true) => {
+        const k = clamp(nextK, ZOOM_MIN, ZOOM_MAX);
+        setScaleK(k);
+        const svgEl = svgRef.current;
+        const zb = zoomBehaviorRef.current;
+        if (svgEl && zb) {
+            const sel = d3.select(svgEl);
+            if (animate) {
+                sel.transition().duration(200).call((zb as any).scaleTo, k);
+            } else {
+                sel.call((zb as any).scaleTo, k);
+            }
+        }
+    };
 
     return (
-        <GlobeSvg svgRef={svgRef} width={width} height={height}>
-            <defs>
-                {/* Clip everything to the sphere */}
-                <clipPath id="sphere-clip">
-                    <path d={path({type: "Sphere"} as any) ?? undefined}/>
-                </clipPath>
-                {/* Subtle ocean radial gradient for depth */}
-                <radialGradient id="ocean-grad" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#eaf3fb"/>
-                    <stop offset="100%" stopColor="#dceaf7"/>
-                </radialGradient>
-            </defs>
+        <div style={{ position: "relative", width: "100%", maxWidth: width }}>
+            <GlobeSvg svgRef={svgRef} width={width} height={height}>
+                <defs>
+                    {/* Clip everything to the sphere */}
+                    <clipPath id="sphere-clip">
+                        <path d={path({ type: "Sphere" } as any) ?? undefined} />
+                    </clipPath>
+                    {/* Subtle ocean radial gradient for depth */}
+                    <radialGradient id="ocean-grad" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stopColor="#eaf3fb" />
+                        <stop offset="100%" stopColor="#dceaf7" />
+                    </radialGradient>
+                </defs>
 
-            {/* Ocean / sphere */}
-            <path
-                d={path({type: "Sphere"} as any) ?? undefined}
-                fill="url(#ocean-grad)"
-                stroke="#7da7cd"
-                strokeWidth={1}
-            />
-
-            {/* Graticule */}
-            <path
-                d={path(graticule) ?? undefined}
-                fill="none"
-                stroke="#a9bfd3"
-                strokeOpacity={0.6}
-                strokeWidth={0.5}
-                clipPath="url(#sphere-clip)"
-            />
-
-            {/* Countries, clipped to sphere */}
-            <g clipPath="url(#sphere-clip)">
-                {countries?.features?.map((f, i) => {
-                    let name =
-                        (f.properties?.name as string) ??
-                        (f.properties?.NAME as string) ??
-                        (f.properties?.admin as string) ??
-                        "";
-                    name = Array.isArray(name) ? name.join(", ") : name;
-                    const v = valueByName.get(name);
-                    const fill =
-                        v == null || !Number.isFinite(v) ? "#e5e7eb" : color(v as number);
-                    return (
-                        <path
-                            key={i}
-                            d={path(f) ?? undefined}
-                            fill={fill}
-                            stroke="#ffffff"
-                            strokeWidth={0.4}
-                            strokeLinejoin="round"
-                        >
-                            <title>{v == null || !Number.isFinite(v) ? (name || "Unknown") : `${name || "Unknown"}: ${v}`}</title>
-                        </path>
-                    );
-                })}
-            </g>
-
-            {/* Borders overlay, clipped */}
-            {borders && (
+                {/* Ocean / sphere */}
                 <path
-                    d={path(borders) ?? undefined}
+                    d={path({ type: "Sphere" } as any) ?? undefined}
+                    fill="url(#ocean-grad)"
+                    stroke="#7da7cd"
+                    strokeWidth={1}
+                />
+
+                {/* Graticule */}
+                <path
+                    d={path(graticule) ?? undefined}
                     fill="none"
-                    stroke="#9ca3af"
+                    stroke="#a9bfd3"
                     strokeOpacity={0.6}
                     strokeWidth={0.5}
                     clipPath="url(#sphere-clip)"
                 />
-            )}
 
-            {/* Legend */}
-            <Legend color={color} width={width} height={height}/>
-        </GlobeSvg>
+                {/* Countries, clipped to sphere */}
+                <g clipPath="url(#sphere-clip)">
+                    {countries?.features?.map((f, i) => {
+                        let name =
+                            (f.properties?.name as string) ??
+                            (f.properties?.NAME as string) ??
+                            (f.properties?.admin as string) ??
+                            "";
+                        name = Array.isArray(name) ? name.join(", ") : name;
+                        const v = valueByName.get(name);
+                        const fill =
+                            v == null || !Number.isFinite(v) ? "#e5e7eb" : color(v as number);
+                        return (
+                            <path
+                                key={i}
+                                d={path(f) ?? undefined}
+                                fill={fill}
+                                stroke="#ffffff"
+                                strokeWidth={0.4}
+                                strokeLinejoin="round"
+                            >
+                                <title>{v == null || !Number.isFinite(v) ? (name || "Unknown") : `${name || "Unknown"}: ${v}`}</title>
+                            </path>
+                        );
+                    })}
+                </g>
+
+                {/* Borders overlay, clipped */}
+                {borders && (
+                    <path
+                        d={path(borders) ?? undefined}
+                        fill="none"
+                        stroke="#9ca3af"
+                        strokeOpacity={0.6}
+                        strokeWidth={0.5}
+                        clipPath="url(#sphere-clip)"
+                    />
+                )}
+
+                {/* Legend */}
+                <Legend color={color} width={width} height={height} />
+            </GlobeSvg>
+
+            {/* Zoom controls */}
+            <div
+                style={{
+                    position: "absolute",
+                    top: 12,
+                    left: 12,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    zIndex: 1,
+                    userSelect: "none",
+                }}
+                aria-label="Zoom controls"
+            >
+                <button
+                    type="button"
+                    onClick={() => applyZoom(scaleK * 1.2)}
+                    aria-label="Zoom in"
+                    title="Zoom in"
+                    style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 6,
+                        border: "1px solid #c7c7c7",
+                        background: "#ffffff",
+                        color: "#111827",
+                        boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+                        cursor: "pointer",
+                        fontSize: 18,
+                        lineHeight: "30px",
+                        textAlign: "center",
+                    }}
+                >
+                    +
+                </button>
+                <button
+                    type="button"
+                    onClick={() => applyZoom(scaleK / 1.2)}
+                    aria-label="Zoom out"
+                    title="Zoom out"
+                    style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 6,
+                        border: "1px solid #c7c7c7",
+                        background: "#ffffff",
+                        color: "#111827",
+                        boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+                        cursor: "pointer",
+                        fontSize: 18,
+                        lineHeight: "30px",
+                        textAlign: "center",
+                    }}
+                >
+                    −
+                </button>
+            </div>
+        </div>
     );
 }
 
