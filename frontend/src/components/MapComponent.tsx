@@ -41,6 +41,10 @@ function MapComponent({
     rotationRef.current = rotation;
     scaleRef.current = scaleK;
 
+    // Animation frame refs to throttle heavy updates during interactions
+    const rotateRafRef = useRef<number | null>(null);
+    const zoomRafRef = useRef<number | null>(null);
+
     // Load the local TopoJSON file (place it under public/countries-50m.json)
     const [topology, setTopology] = useState<any | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -140,7 +144,13 @@ function MapComponent({
             })
             .on("zoom", (event) => {
                 const k = event.transform.k;
-                setScaleK(k);
+                // Ignore tiny changes to reduce needless re-renders
+                if (Math.abs(k - scaleRef.current) < 0.01) return;
+                if (zoomRafRef.current != null) cancelAnimationFrame(zoomRafRef.current);
+                zoomRafRef.current = requestAnimationFrame(() => {
+                    setScaleK(k);
+                    zoomRafRef.current = null;
+                });
             });
 
         svg.call(zoom as any);
@@ -169,10 +179,16 @@ function MapComponent({
                 const sens = 0.25;
                 const [lambda0, phi0, gamma] = startRotation;
 
-                // update rotation (lambda increases leftwards; invert dx for natural feel)
-                const lambda = lambda0 + (-dx * sens);
-                const phi = Math.max(-90, Math.min(90, phi0 + (dy * sens))); // clamp latitude tilt
-                setRotation([lambda, phi, gamma]);
+                // Natural-feel mapping: dragging right rotates globe eastward (increase lambda), dragging up tilts north (decrease phi)
+                const lambda = lambda0 + (dx * sens);
+                const phi = Math.max(-90, Math.min(90, phi0 - (dy * sens))); // clamp latitude tilt
+
+                if (rotateRafRef.current != null) cancelAnimationFrame(rotateRafRef.current);
+                const nextRot: [number, number, number] = [lambda, phi, gamma];
+                rotateRafRef.current = requestAnimationFrame(() => {
+                    setRotation(nextRot);
+                    rotateRafRef.current = null;
+                });
             });
 
         svg
@@ -186,6 +202,8 @@ function MapComponent({
                 .on(".drag", null)
                 .on("mousedown.drag-cursor", null)
                 .on("mouseup.drag-cursor", null);
+            if (rotateRafRef.current != null) cancelAnimationFrame(rotateRafRef.current);
+            if (zoomRafRef.current != null) cancelAnimationFrame(zoomRafRef.current);
         };
     }, []);
 
